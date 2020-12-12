@@ -21,8 +21,9 @@ def train(dataset, dev):
     adj = None
     if os.path.exists('adj_matrix/{}_adj.npy'.format(dataset.datasetName)) is False:
         adj = nx.adjacency_matrix(dataset.graph, np.sort(list(dataset.graph.nodes))).A
-        adj = torch.tensor(prerocess_adj(adj), dtype=torch.float32).to(dev)
+        adj = prerocess_adj(adj)
         np.save('adj_matrix/{}_adj.npy'.format(dataset.datasetName), adj)
+        adj = torch.tensor(adj, dtype=torch.float32).to(dev)
     else:
         adj = torch.tensor(np.load('adj_matrix/{}_adj.npy'.format(dataset.datasetName)), dtype=torch.float32).to(dev)
 

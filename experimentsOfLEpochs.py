@@ -45,14 +45,13 @@ def FedAvgGCNTrain(args):
 	features = torch.tensor(dataset.features, dtype=torch.float32).to(dev)
 	labels = torch.tensor(dataset.labels, dtype=torch.float32).to(dev)
 	testNodes = torch.tensor(dataset.testNodes, dtype=torch.long).to(dev)
-	# adj = nx.adjacency_matrix(dataset.graph, np.sort(list(dataset.graph.nodes))).A
-	# adj = torch.tensor(prerocess_adj(adj), dtype=torch.float32).to(dev)
 
 	adj = None
 	if os.path.exists('adj_matrix/{}_adj.npy'.format(dataset.datasetName)) is False:
 		adj = nx.adjacency_matrix(dataset.graph, np.sort(list(dataset.graph.nodes))).A
-		adj = torch.tensor(prerocess_adj(adj), dtype=torch.float32).to(dev)
+		adj = prerocess_adj(adj)
 		np.save('adj_matrix/{}_adj.npy'.format(dataset.datasetName), adj)
+		adj = torch.tensor(adj, dtype=torch.float32).to(dev)
 	else:
 		adj = torch.tensor(np.load('adj_matrix/{}_adj.npy'.format(dataset.datasetName)), dtype=torch.float32).to(dev)
 
@@ -97,19 +96,22 @@ def FedAvgGCNTrain(args):
 			clientsIncomm = ['client{}'.format(k) for k in order[0: numOfClientsPerComm]]
 
 			sumParameters = None
+			totalSize = 0
 			for client in clientsIncomm:
-				localParameters = clients.clientsSet[client].localUpdate(Net, lossFun, optimizer, globalParameters, e)
+				localParameters, localTestSize = clients.clientsSet[client].localUpdate(Net, lossFun, optimizer, globalParameters, e)
 
 				if sumParameters is None:
 					sumParameters = {}
 					for key, var in localParameters.items():
-						sumParameters[key] = var.clone()
+						sumParameters[key] = var.clone()*localTestSize
 				else:
 					for var in sumParameters:
-						sumParameters[var] = sumParameters[var] + localParameters[var]
+						sumParameters[var] = sumParameters[var] + localParameters[var]*localTestSize
+
+				totalSize = totalSize + localTestSize
 
 			for var in globalParameters:
-				globalParameters[var] = sumParameters[var] / numOfClientsPerComm
+				globalParameters[var] = sumParameters[var] / totalSize
 
 			for id, client in clients.clientsSet.items():
 				localTestAcc = client.localTest(Net, globalParameters)
@@ -146,8 +148,9 @@ if __name__ == "__main__":
 
 	round = np.array([i + 1 for i in range(200)])
 
-	path = r'result/IID/local_epoch/{}'.format(args['dataset'])
-	dirs = ['client0', 'client1', 'client2', 'client3', 'global']
+	path = r'result/GSNonIID/local_epoch_all/{}'.format(args['dataset'])
+	# dirs = ['client0', 'client1', 'client2', 'client3', 'global']
+	dirs = ['client0', 'client1', 'client2', 'global']
 	le = [1, 2, 5, 10, 20]
 
 	standard = {'cora': 0.8031, 'citeseer': 0.715, 'pubmed': 0.7893}
@@ -164,14 +167,14 @@ if __name__ == "__main__":
 		plt.xlabel('communication round')
 		plt.ylabel('Accuracy')
 
-		plt.plot(round[0: 100], acc[0][0: 100], color='bisque', label='1')
-		plt.plot(round[0: 100], acc[1][0: 100], color='orange', label='2')
-		plt.plot(round[0: 100], acc[2][0: 100], color='lightcoral', label='5')
-		plt.plot(round[0: 100], acc[3][0: 100], color='red', label='10')
-		plt.plot(round[0: 100], acc[4][0: 100], color='maroon', label='20')
-		plt.plot(round[0: 100], [standard[args['dataset']] for _ in range(200)][0: 100], color='green', label='standard', linestyle='dashed')
+		plt.plot(round[0: 120], acc[0][0: 120], color='bisque', label='1')
+		plt.plot(round[0: 120], acc[1][0: 120], color='orange', label='2')
+		plt.plot(round[0: 120], acc[2][0: 120], color='lightcoral', label='5')
+		plt.plot(round[0: 120], acc[3][0: 120], color='red', label='10')
+		plt.plot(round[0: 120], acc[4][0: 120], color='maroon', label='20')
+		plt.plot(round[0: 120], [standard[args['dataset']] for _ in range(200)][0: 120], color='green', label='standard', linestyle='dashed')
 		plt.legend(loc='best')
 
-		# plt.savefig('plt/{}_{}.png'.format(args['dataset'], dir))
+		plt.savefig('plt/GSNonIID/{}_{}_all.png'.format(args['dataset'], dir))
 		plt.show()
 		plt.cla()

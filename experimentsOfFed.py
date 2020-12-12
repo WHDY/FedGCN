@@ -44,14 +44,13 @@ def FedAvgGCNTrain(args):
 	features = torch.tensor(dataset.features, dtype=torch.float32).to(dev)
 	labels = torch.tensor(dataset.labels, dtype=torch.float32).to(dev)
 	testNodes = torch.tensor(dataset.testNodes, dtype=torch.long).to(dev)
-	# adj = nx.adjacency_matrix(dataset.graph, np.sort(list(dataset.graph.nodes))).A
-	# adj = torch.tensor(prerocess_adj(adj), dtype=torch.float32).to(dev)
 
 	adj = None
 	if os.path.exists('adj_matrix/{}_adj.npy'.format(dataset.datasetName)) is False:
 		adj = nx.adjacency_matrix(dataset.graph, np.sort(list(dataset.graph.nodes))).A
-		adj = torch.tensor(prerocess_adj(adj), dtype=torch.float32).to(dev)
+		adj = prerocess_adj(adj)
 		np.save('adj_matrix/{}_adj.npy'.format(dataset.datasetName), adj)
+		adj = torch.tensor(adj, dtype=torch.float32).to(dev)
 	else:
 		adj = torch.tensor(np.load('adj_matrix/{}_adj.npy'.format(dataset.datasetName)), dtype=torch.float32).to(dev)
 
@@ -65,7 +64,7 @@ def FedAvgGCNTrain(args):
 	newclient = 0.0
 	globalModel = 0.0
 
-	for _ in range(3):
+	for _ in range(10):
 
 		# --------------------------------------- GCN Model --------------------------------------
 		Net = GCN(inDim=dataset.features.shape[1],
@@ -86,7 +85,7 @@ def FedAvgGCNTrain(args):
 
 		print('============== without FedAvg 测试 ===============')
 		for id, client in clients.clientsSet.items():
-			localParameters = clients.clientsSet[id].localUpdate(Net, lossFun, optimizer, initialParameter, 200)
+			localParameters, localTestSize = clients.clientsSet[id].localUpdate(Net, lossFun, optimizer, initialParameter, 200)
 			localTestAcc = clients.clientsSet[id].localTest(Net, localParameters)
 			withoutFedAvg[id] = withoutFedAvg[id] + localTestAcc
 			print('{} model'.format(id))
@@ -103,19 +102,22 @@ def FedAvgGCNTrain(args):
 			clientsIncomm = ['client{}'.format(k) for k in order[0: numOfClientsPerComm]]
 
 			sumParameters = None
+			totalSize = 0
 			for client in clientsIncomm:
-				localParameters = clients.clientsSet[client].localUpdate(Net, lossFun, optimizer, globalParameters, args['local_epoch'])
+				localParameters, localTestSize = clients.clientsSet[client].localUpdate(Net, lossFun, optimizer, globalParameters, args['local_epoch'])
 
 				if sumParameters is None:
 					sumParameters = {}
 					for key, var in localParameters.items():
-						sumParameters[key] = var.clone()
+						sumParameters[key] = var.clone()*localTestSize
 				else:
 					for var in sumParameters:
-						sumParameters[var] = sumParameters[var] + localParameters[var]
+						sumParameters[var] = sumParameters[var] + localParameters[var]*localTestSize
+
+				totalSize = totalSize + localTestSize
 
 			for var in globalParameters:
-				globalParameters[var] = sumParameters[var] / numOfClientsPerComm
+				globalParameters[var] = sumParameters[var] / totalSize
 
 			if (i + 1) == args['num_comm']:
 				for client in clientsIncomm:
@@ -143,13 +145,13 @@ def FedAvgGCNTrain(args):
 		newclient = newclient + localTestAcc
 
 	for id, acc in withoutFedAvg.items():
-		print(id, acc/3)
+		print(id, acc/10)
 
 	for id, acc in withFedAvg.items():
-		print(id, acc/3)
+		print(id, acc/10)
 
-	print(globalModel/3)
-	print(newclient/3)
+	print(globalModel/10)
+	print(newclient/10)
 
 
 if __name__ == "__main__":

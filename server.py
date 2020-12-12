@@ -44,14 +44,13 @@ def FedAvgGCNTrain(args):
     features = torch.tensor(dataset.features, dtype=torch.float32).to(dev)
     labels = torch.tensor(dataset.labels, dtype=torch.float32).to(dev)
     testNodes = torch.tensor(dataset.testNodes, dtype=torch.long).to(dev)
-    # adj = nx.adjacency_matrix(dataset.graph, np.sort(list(dataset.graph.nodes))).A
-    # adj = torch.tensor(prerocess_adj(adj), dtype=torch.float32).to(dev)
 
     adj = None
     if os.path.exists('adj_matrix/{}_adj.npy'.format(dataset.datasetName)) is False:
         adj = nx.adjacency_matrix(dataset.graph, np.sort(list(dataset.graph.nodes))).A
-        adj = torch.tensor(prerocess_adj(adj), dtype=torch.float32).to(dev)
+        adj = prerocess_adj(adj)
         np.save('adj_matrix/{}_adj.npy'.format(dataset.datasetName), adj)
+        adj = torch.tensor(adj, dtype=torch.float32).to(dev)
     else:
         adj = torch.tensor(np.load('adj_matrix/{}_adj.npy'.format(dataset.datasetName)), dtype=torch.float32).to(dev)
 
@@ -81,8 +80,9 @@ def FedAvgGCNTrain(args):
         clientsIncomm = ['client{}'.format(k) for k in order[0: numOfClientsPerComm]]
 
         sumParameters = None
+        totalSize = 0
         for client in tqdm(clientsIncomm):
-            localParameters = clients.clientsSet[client].localUpdate(Net, lossFun, optimizer, globalParameters, args['local_epoch'])
+            localParameters, localTestSize = clients.clientsSet[client].localUpdate(Net, lossFun, optimizer, globalParameters, args['local_epoch'])
 
             if (i + 1) == args['num_comm']:
                 localTestAcc = clients.clientsSet[client].localTest(Net, localParameters)
@@ -92,13 +92,15 @@ def FedAvgGCNTrain(args):
             if sumParameters is None:
                 sumParameters = {}
                 for key, var in localParameters.items():
-                    sumParameters[key] = var.clone()
+                    sumParameters[key] = var.clone()*localTestSize
             else:
                 for var in sumParameters:
-                    sumParameters[var] = sumParameters[var] + localParameters[var]
+                    sumParameters[var] = sumParameters[var] + localParameters[var]*localTestSize
+
+            totalSize = totalSize + localTestSize
 
         for var in globalParameters:
-            globalParameters[var] = sumParameters[var] / numOfClientsPerComm
+            globalParameters[var] = sumParameters[var] / totalSize
 
         with torch.no_grad():
             Net.load_state_dict(globalParameters, strict=True)
@@ -119,7 +121,7 @@ if __name__ == "__main__":
     args = args.__dict__
 
     sum_acc = 0
-    for i in range(5):
+    for i in range(10):
         sum_acc += FedAvgGCNTrain(args)
 
-    print(sum_acc / 5)
+    print(sum_acc / 10)

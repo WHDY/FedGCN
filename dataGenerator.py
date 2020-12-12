@@ -85,7 +85,7 @@ class dataGenerator(object):
 
 
 if __name__ == "__main__":
-	cora = dataGenerator("pubmed")
+	cora = dataGenerator("cora")
 	graph = nx.Graph()
 	graph.add_node(1)
 	graph.add_node(2)
